@@ -35,7 +35,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         {/* Applies the persisted theme before first paint to avoid a flash. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
       </head>
-      <body className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
+      <body
+        suppressHydrationWarning
+        className="flex min-h-dvh flex-col bg-background font-sans text-foreground"
+      >
         {/* SVG displacement filter used by every .liquid-glass surface. */}
         <LiquidGlassFilter />
         <ThemeProvider>
