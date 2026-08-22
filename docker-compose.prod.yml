@@ -101,8 +101,10 @@ services:
       # Statement uploads must outlive the container. A single API replica can
       # use this volume; scaling out requires an object-storage adapter.
       - statement-data:/data/statements
-    ports:
-      - "${API_PORT:-3001}:3001"
+    # Not published: Caddy is the only ingress. The security group allows 80/443
+    # only, so publishing 3001 would be unreachable anyway — and confusing.
+    expose:
+      - "3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,6 +124,13 @@ services:
       REDIS_URL: redis://redis:6379
       WORKER_QUEUES: ${WORKER_QUEUES:-all}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      # Required even though the worker serves no admin traffic: it boots by
+      # calling the API's env(), whose production refinements demand this
+      # (apps/api/src/env.ts). Without it the worker exits at startup and
+      # crash-loops — and since it has no port and no healthcheck, nothing
+      # surfaces that. Every background job, including AI generation, would
+      # silently never run.
+      JWT_ADMIN_SECRET: ${JWT_ADMIN_SECRET}
       BANK_TOKEN_ENCRYPTION_KEY: ${BANK_TOKEN_ENCRYPTION_KEY}
       PLAID_ENV: ${PLAID_ENV:-sandbox}
       PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
@@ -145,9 +154,35 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-    ports:
-      - "${WEB_PORT:-3000}:3000"
+      # Server-side rendering reaches the API over the Docker network. It must
+      # not use the public URL: this box cannot reach its own Elastic IP, so SSR
+      # would fail silently and the dashboard would render empty.
+      API_INTERNAL_URL: http://api:3001
+    expose:
+      - "3000"
     depends_on:
+      api:
+        condition: service_started
+
+  # Single public ingress. Terminates the one origin the browser talks to and
+  # splits /api/* from the app, which makes API calls same-origin (no CORS
+  # preflight) and gives Stripe a routable webhook path.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      # ":80" for plain HTTP on a raw IP; a hostname to auto-provision TLS.
+      APP_ORIGIN: ${APP_ORIGIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      web:
+        condition: service_started
       api:
         condition: service_started
 
@@ -155,3 +190,5 @@ volumes:
   postgres-data:
   redis-data:
   statement-data:
+  caddy-data:
+  caddy-config:

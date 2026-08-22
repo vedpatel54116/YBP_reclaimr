@@ -1,0 +1,32 @@
+# ReclaimR edge. Terminates the single public origin and splits traffic between
+# the API and the Next.js server, so the browser only ever talks to one host.
+#
+# APP_ORIGIN is the site address. Two supported shapes:
+#   APP_ORIGIN=:80                  -> plain HTTP, no cert (raw IP access)
+#   APP_ORIGIN=app.example.com      -> Caddy obtains a Let's Encrypt cert
+#                                      automatically over HTTP-01 on port 80
+#
+# Certificates live in the caddy-data volume. Losing that volume forces
+# re-issuance and can hit Let's Encrypt rate limits, so it is a named volume.
+
+{$APP_ORIGIN} {
+	encode zstd gzip
+
+	# The app's own prefix is /api/v1 (packages/shared/src/constants.ts), so this
+	# matcher covers every API route including the Stripe webhook.
+	#
+	# `encode` compresses responses only and reverse_proxy streams request bodies
+	# untouched. That matters: the Stripe and investment-partner webhooks verify
+	# an HMAC over the raw body and would break behind any body-rewriting proxy.
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# /health and /ready are intentionally NOT routed. They are registered without
+	# the /api/v1 prefix, so they fall through to web:3000 and 404 publicly.
+	# Probes stay internal and /ready does not leak dependency state.
+}

@@ -8,6 +8,18 @@ import {
 } from "@reclaimr/shared";
 
 function getApiBaseUrl(): string | null {
+  // Server-side rendering must not use the public hostname. It resolves to the
+  // box's own Elastic IP, and an EC2 instance cannot reach its own EIP — there
+  // is no hairpin NAT path through the internet gateway — so every SSR fetch
+  // would fail. apiFetch swallows failures and returns null, so the dashboard
+  // would render empty with nothing logged. Reach the API over the Docker
+  // network instead.
+  //
+  // Deliberately not NEXT_PUBLIC_*, so Next.js never inlines it into the client
+  // bundle; in the browser this is undefined and the public URL below is used.
+  const internalUrl = process.env.API_INTERNAL_URL?.trim();
+  if (internalUrl) return internalUrl.replace(/\/+$/, "");
+
   const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (envUrl) return envUrl.replace(/\/+$/, "");
 
