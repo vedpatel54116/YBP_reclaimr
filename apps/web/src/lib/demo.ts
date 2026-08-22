@@ -88,6 +88,79 @@ export const UNUSED_SUBSCRIPTION_IDS: Record<string, string> = {
   [uuid("fitness")]: "No check-ins since March",
 };
 
+export interface SubscriptionUsageRecord {
+  hoursUsedMonth: number;
+  benchmarkHoursMonth: number;
+  shapeExponent?: number;
+  lastUsedAt?: string | null;
+  notes?: string;
+}
+
+/**
+ * Demo usage metrics for subscriptions to compute the non-linear Rot Score:
+ * R(S, P) = P * (1 - sqrt(S / S_cap)).
+ */
+export const DEMO_SUBSCRIPTION_USAGE: Record<string, SubscriptionUsageRecord> = {
+  [uuid("streaming")]: {
+    hoursUsedMonth: 3.5,
+    benchmarkHoursMonth: 20,
+    lastUsedAt: isoDaysAgo(4),
+    notes: "3.5 hrs streamed this month across 2 devices",
+  },
+  [uuid("music")]: {
+    hoursUsedMonth: 22,
+    benchmarkHoursMonth: 25,
+    lastUsedAt: isoDaysAgo(1),
+    notes: "22 hrs listened this month (heavy active listener)",
+  },
+  [uuid("cloud")]: {
+    hoursUsedMonth: 1.0,
+    benchmarkHoursMonth: 10,
+    lastUsedAt: isoDaysAgo(14),
+    notes: "1 hr file access this month (mostly dormant backups)",
+  },
+  [uuid("design")]: {
+    hoursUsedMonth: 4.0,
+    benchmarkHoursMonth: 30,
+    lastUsedAt: isoDaysAgo(9),
+    notes: "4 hrs active editing this month (used for 1 project)",
+  },
+  [uuid("mealkit")]: {
+    hoursUsedMonth: 0,
+    benchmarkHoursMonth: 15,
+    lastUsedAt: null,
+    notes: "0 meals cooked in 8 weeks",
+  },
+  [uuid("news")]: {
+    hoursUsedMonth: 0.5,
+    benchmarkHoursMonth: 15,
+    lastUsedAt: isoDaysAgo(18),
+    notes: "30 mins read this month",
+  },
+  [uuid("fitness")]: {
+    hoursUsedMonth: 0,
+    benchmarkHoursMonth: 12,
+    lastUsedAt: null,
+    notes: "0 check-ins recorded since March",
+  },
+  [uuid("domain")]: {
+    hoursUsedMonth: 0,
+    benchmarkHoursMonth: 5,
+    lastUsedAt: null,
+    notes: "Canceled domain service",
+  },
+};
+
+export function getDemoSubscriptionUsage(subscriptionId: string): SubscriptionUsageRecord {
+  return (
+    DEMO_SUBSCRIPTION_USAGE[subscriptionId] ?? {
+      hoursUsedMonth: 0,
+      benchmarkHoursMonth: 20,
+      notes: "No usage activity detected this month",
+    }
+  );
+}
+
 // ─── Alternative advice ──────────────────────────────────────────────────────
 
 /** Cadence-normalized monthly cost. Duplicated from @reclaimr/core rather than

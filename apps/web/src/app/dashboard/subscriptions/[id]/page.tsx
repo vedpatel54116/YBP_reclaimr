@@ -15,12 +15,13 @@ import {
 } from "@reclaimr/ui";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { BetterOptionsCard } from "@/components/dashboard/better-options-card";
+import { RotScoreCard } from "@/components/dashboard/rot-score-card";
 import {
   CancelSubscriptionButton,
   ReactivateSubscriptionButton,
 } from "@/components/dashboard/subscription-actions";
 import { UNUSED_SUBSCRIPTION_IDS } from "@/lib/demo";
-import { loadAdvice, loadSubscription } from "@/lib/data";
+import { loadAdvice, loadSubscription, loadSubscriptionUsage } from "@/lib/data";
 import {
   monthlyEquivalentCents,
   previousChargeDate,
@@ -42,7 +43,10 @@ export async function generateMetadata({ params }: SubscriptionDetailPageProps):
 
 export default async function SubscriptionDetailPage({ params }: SubscriptionDetailPageProps) {
   const { id } = await params;
-  const result = await loadSubscription(id);
+  const [result, usage] = await Promise.all([
+    loadSubscription(id),
+    loadSubscriptionUsage(id),
+  ]);
   if (!result) notFound();
 
   const { subscription, source } = result;
@@ -97,81 +101,96 @@ export default async function SubscriptionDetailPage({ params }: SubscriptionDet
       />
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-        {/* ── Charge summary ──────────────────────────────────────────────── */}
-        <Card className="lg:col-span-2">
-          <div className="flex flex-wrap items-end justify-between gap-4 border-b pb-5">
-            <div className="flex flex-col gap-1">
-              <Badge variant={statusBadgeVariant(subscription.status)}>{subscription.status}</Badge>
-              <p className="font-mono text-5xl font-bold tracking-tight tabular-nums">
-                {formatMoney(subscription.amountCents, subscription.currency)}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {formatCadence(subscription.cadence)} ·{" "}
-                <span className="font-mono tabular-nums">
-                  {formatMoney(monthly, subscription.currency)}
-                </span>{" "}
-                per month equivalent
+        {/* ── Main column: Summary & Rot Score ──────────────────────────── */}
+        <div className="flex flex-col gap-4 lg:col-span-2">
+          <Card>
+            <div className="flex flex-wrap items-end justify-between gap-4 border-b pb-5">
+              <div className="flex flex-col gap-1">
+                <Badge variant={statusBadgeVariant(subscription.status)}>{subscription.status}</Badge>
+                <p className="font-mono text-5xl font-bold tracking-tight tabular-nums">
+                  {formatMoney(subscription.amountCents, subscription.currency)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {formatCadence(subscription.cadence)} ·{" "}
+                  <span className="font-mono tabular-nums">
+                    {formatMoney(monthly, subscription.currency)}
+                  </span>{" "}
+                  per month equivalent
+                </p>
+              </div>
+            </div>
+
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4">
+              {[
+                { label: "Last charge", value: formatDate(lastCharge) },
+                {
+                  label: "Next charge",
+                  value:
+                    subscription.status === "canceled"
+                      ? "—"
+                      : formatDate(subscription.nextBillingDate),
+                },
+                { label: "Yearly cost", value: formatMoney(monthly * 12, subscription.currency) },
+                { label: "Currency", value: subscription.currency },
+              ].map((item) => (
+                <div key={item.label} className="flex flex-col gap-1 bg-background p-3">
+                  <dt className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                    {item.label}
+                  </dt>
+                  <dd className="font-mono text-sm font-semibold tabular-nums">{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div>
+              <h2 className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Charge history
+              </h2>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableHeadCell>Date</TableHeadCell>
+                    <TableHeadCell>Kind</TableHeadCell>
+                    <TableHeadCell className="text-right">Amount</TableHeadCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {historyRows.map((row) => (
+                    <TableRow key={row.date}>
+                      <TableCell className="font-mono tabular-nums">{formatDate(row.date)}</TableCell>
+                      <TableCell>
+                        {row.upcoming ? (
+                          <Badge variant="outline">Upcoming</Badge>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Charged</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-semibold tabular-nums">
+                        {formatMoney(subscription.amountCents, subscription.currency)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="mt-2 text-xs text-subtle-foreground">
+                History is derived from the billing cadence until transaction-level data is linked.
               </p>
             </div>
-          </div>
+          </Card>
 
-          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4">
-            {[
-              { label: "Last charge", value: formatDate(lastCharge) },
-              {
-                label: "Next charge",
-                value:
-                  subscription.status === "canceled"
-                    ? "—"
-                    : formatDate(subscription.nextBillingDate),
-              },
-              { label: "Yearly cost", value: formatMoney(monthly * 12, subscription.currency) },
-              { label: "Currency", value: subscription.currency },
-            ].map((item) => (
-              <div key={item.label} className="flex flex-col gap-1 bg-background p-3">
-                <dt className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  {item.label}
-                </dt>
-                <dd className="font-mono text-sm font-semibold tabular-nums">{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-
-          <div>
-            <h2 className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              Charge history
-            </h2>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableHeadCell>Date</TableHeadCell>
-                  <TableHeadCell>Kind</TableHeadCell>
-                  <TableHeadCell className="text-right">Amount</TableHeadCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {historyRows.map((row) => (
-                  <TableRow key={row.date}>
-                    <TableCell className="font-mono tabular-nums">{formatDate(row.date)}</TableCell>
-                    <TableCell>
-                      {row.upcoming ? (
-                        <Badge variant="outline">Upcoming</Badge>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">Charged</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono font-semibold tabular-nums">
-                      {formatMoney(subscription.amountCents, subscription.currency)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <p className="mt-2 text-xs text-subtle-foreground">
-              History is derived from the billing cadence until transaction-level data is linked.
-            </p>
-          </div>
-        </Card>
+          {/* ── Rot Score & Value Efficiency Card ──────────────────────── */}
+          {subscription.status !== "canceled" ? (
+            <RotScoreCard
+              monthlyPriceCents={monthly}
+              currency={subscription.currency}
+              initialHoursUsed={usage.hoursUsedMonth}
+              benchmarkHours={usage.benchmarkHoursMonth}
+              shapeExponent={usage.shapeExponent}
+              notes={usage.notes}
+              subscriptionName={subscription.name}
+            />
+          ) : null}
+        </div>
 
         {/* ── Side column ────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-4">

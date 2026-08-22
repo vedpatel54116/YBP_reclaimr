@@ -18,10 +18,11 @@ import {
   CancelSubscriptionButton,
   ReactivateSubscriptionButton,
 } from "@/components/dashboard/subscription-actions";
-import { loadSubscriptions, getDemoAdviceSavings } from "@/lib/data";
+import { loadSubscriptions, getDemoAdviceSavings, getSubscriptionRotScores } from "@/lib/data";
 import {
   isStatusFilter,
   previousChargeDate,
+  rotBadgeVariant,
   statusBadgeVariant,
   summarizeSubscriptions,
   STATUS_FILTERS,
@@ -52,6 +53,7 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
   // Best-known monthly saving per row. Fixture-backed for now: rendering a
   // badge must never cost one API call per row.
   const adviceSavings = getDemoAdviceSavings();
+  const rotScores = getSubscriptionRotScores(subscriptions);
   const visible =
     filter === "all" ? subscriptions : subscriptions.filter((item) => item.status === filter);
 
@@ -104,6 +106,7 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
               <TableRow>
                 <TableHeadCell>Merchant</TableHeadCell>
                 <TableHeadCell className="text-right">Amount</TableHeadCell>
+                <TableHeadCell>Rot Score</TableHeadCell>
                 <TableHeadCell>Frequency</TableHeadCell>
                 <TableHeadCell>Last charge</TableHeadCell>
                 <TableHeadCell>Next charge</TableHeadCell>
@@ -132,6 +135,30 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
                   </TableCell>
                   <TableCell className="text-right font-mono font-semibold tabular-nums">
                     {formatMoney(subscription.amountCents, subscription.currency)}
+                  </TableCell>
+                  <TableCell>
+                    {subscription.status === "canceled" ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : rotScores.has(subscription.id) ? (
+                      (() => {
+                        const rot = rotScores.get(subscription.id)!;
+                        return (
+                          <div className="flex flex-col items-start gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-xs font-bold tabular-nums">
+                                {rot.rotScore}%
+                              </span>
+                              <Badge variant={rotBadgeVariant(rot.tier)} className="px-1.5 py-0 text-[10px]">
+                                {rot.tierLabel}
+                              </Badge>
+                            </div>
+                            <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                              {formatMoney(rot.wastedMonthlyCents, subscription.currency)}/mo wasted
+                            </span>
+                          </div>
+                        );
+                      })()
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatCadence(subscription.cadence)}

@@ -6,8 +6,19 @@ import {
   DEMO_SAVINGS_EVENTS,
   DEMO_SUBSCRIPTIONS,
   DEMO_SUGGESTIONS,
+  getDemoSubscriptionUsage,
+  type SubscriptionUsageRecord,
 } from "./demo";
-import { monthlyEquivalentCents, type AlertItem, type Bill, type SavingsEvent } from "./domain";
+import {
+  calculateSubscriptionRot,
+  monthlyEquivalentCents,
+  summarizeRotPortfolio,
+  type AlertItem,
+  type Bill,
+  type RotPortfolioSummary,
+  type RotScoreResult,
+  type SavingsEvent,
+} from "./domain";
 
 /**
  * Data access for dashboard pages. Subscriptions come from the live API and
@@ -78,6 +89,49 @@ export function getDemoAdviceSavings(): Map<string, number> {
     if (best > 0) savings.set(subscriptionId, best);
   }
   return savings;
+}
+
+/**
+ * Loads usage record for a subscription (demo-backed until live telemetry API).
+ */
+export async function loadSubscriptionUsage(
+  subscriptionId: string,
+): Promise<SubscriptionUsageRecord> {
+  return getDemoSubscriptionUsage(subscriptionId);
+}
+
+/**
+ * Returns computed Rot Score results for a list of subscriptions.
+ */
+export function getSubscriptionRotScores(
+  subscriptions: Subscription[],
+): Map<string, RotScoreResult> {
+  const map = new Map<string, RotScoreResult>();
+  for (const sub of subscriptions) {
+    const usage = getDemoSubscriptionUsage(sub.id);
+    const rot = calculateSubscriptionRot(sub, usage);
+    map.set(sub.id, rot);
+  }
+  return map;
+}
+
+/**
+ * Summarizes rot metrics across all active subscriptions.
+ */
+export function getPortfolioRotSummary(
+  subscriptions: Subscription[],
+): RotPortfolioSummary {
+  const active = subscriptions.filter((s) => s.status === "active");
+  const inputs = active.map((s) => {
+    const usage = getDemoSubscriptionUsage(s.id);
+    return {
+      hoursUsedMonth: usage.hoursUsedMonth,
+      monthlyPriceCents: monthlyEquivalentCents(s.amountCents, s.cadence),
+      benchmarkHoursMonth: usage.benchmarkHoursMonth,
+      shapeExponent: usage.shapeExponent,
+    };
+  });
+  return summarizeRotPortfolio(inputs);
 }
 
 export function getBills(): Bill[] {

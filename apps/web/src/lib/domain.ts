@@ -1,4 +1,13 @@
 import type { BillingCadence, Subscription, SubscriptionStatus } from "@reclaimr/shared";
+import {
+  computeRotScore,
+  getRotTier,
+  summarizeRotPortfolio,
+  type RotCalculationInput,
+  type RotPortfolioSummary,
+  type RotScoreResult,
+  type RotTier,
+} from "@reclaimr/core";
 
 /*
  * Dashboard domain models for the surfaces the API does not serve yet
@@ -199,4 +208,38 @@ const STATUS_BADGE_VARIANT: Record<SubscriptionStatus, "solid" | "outline" | "mu
 
 export function statusBadgeVariant(status: SubscriptionStatus) {
   return STATUS_BADGE_VARIANT[status];
+}
+
+// ─── Rot Score helpers ───────────────────────────────────────────────────────
+
+export { getRotTier, summarizeRotPortfolio };
+export type { RotCalculationInput, RotPortfolioSummary, RotScoreResult, RotTier };
+
+const ROT_BADGE_VARIANT: Record<RotTier, "solid" | "outline" | "muted"> = {
+  high_rot: "solid",
+  moderate_rot: "outline",
+  healthy: "muted",
+};
+
+export function rotBadgeVariant(tier: RotTier): "solid" | "outline" | "muted" {
+  return ROT_BADGE_VARIANT[tier];
+}
+
+/**
+ * Calculates the Rot Score for a subscription given its cost and usage data.
+ */
+export function calculateSubscriptionRot(
+  subscription: { amountCents: number; cadence: BillingCadence },
+  usage?: { hoursUsedMonth: number; benchmarkHoursMonth: number; shapeExponent?: number },
+): RotScoreResult {
+  const monthlyPriceCents = monthlyEquivalentCents(
+    subscription.amountCents,
+    subscription.cadence,
+  );
+  return computeRotScore({
+    hoursUsedMonth: usage?.hoursUsedMonth ?? 0,
+    monthlyPriceCents,
+    benchmarkHoursMonth: usage?.benchmarkHoursMonth,
+    shapeExponent: usage?.shapeExponent,
+  });
 }

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
+    "@reclaimr/core": "workspace:*",
     "@reclaimr/shared": "workspace:*",
     "@reclaimr/ui": "workspace:*",
     "next": "^15.1.0",
