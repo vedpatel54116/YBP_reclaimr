@@ -49,9 +49,9 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       </aside>
 
       <div className="flex min-h-dvh flex-col">
-        {/* Mobile header + nav */}
-        <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur lg:hidden">
-          <div className="flex h-14 items-center justify-between px-4">
+        {/* Mobile header + nav: floating glass pills */}
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-30 flex flex-col gap-2 p-3 lg:hidden">
+          <div className="liquid-glass pointer-events-auto flex h-14 items-center justify-between rounded-full px-5">
             <Link
               href="/"
               className="font-heading text-base font-bold tracking-tight uppercase focus-visible:outline-2"
@@ -60,10 +60,13 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
             </Link>
             <ThemeToggle />
           </div>
-          <div className="border-t pb-2 pt-2">
+          <div className="liquid-glass pointer-events-auto rounded-full py-2">
             <SidebarNav variant="horizontal" unreadAlerts={unreadAlerts} />
           </div>
-        </header>
+        </div>
+
+        {/* Clearance for the fixed mobile pills */}
+        <div className="h-32 lg:hidden" aria-hidden="true" />
 
         <main className="flex-1">
           <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-10">
