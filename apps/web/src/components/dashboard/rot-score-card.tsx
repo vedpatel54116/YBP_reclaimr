@@ -46,22 +46,44 @@ export function RotScoreCard({
           title="Rot Score & Value Efficiency"
           description="Evaluates subscription waste using the non-linear diminishing returns curve R(S,P) = P · (1 − √(S/S_cap))."
         />
-        <Badge variant={rotBadgeVariant(rot.tier)}>
+        <span
+          className={`rounded px-2.5 py-1 text-xs font-extrabold tracking-wider uppercase ${
+            rot.tier === "high_rot"
+              ? "bg-red-500/20 text-red-500 border border-red-500/40 shadow-xs"
+              : rot.tier === "moderate_rot"
+              ? "border border-foreground/40 bg-muted text-foreground font-bold"
+              : "border border-border text-muted-foreground font-semibold"
+          }`}
+        >
           {rot.tierLabel}
-        </Badge>
+        </span>
       </div>
 
       {/* ── Main metric row ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="flex flex-col gap-1.5 rounded-xl border border-foreground/30 bg-muted/30 p-4">
+        <div
+          className={`flex flex-col gap-1.5 rounded-xl border p-4 ${
+            rot.tier === "high_rot"
+              ? "border-red-500/40 bg-red-500/10"
+              : "border-foreground/30 bg-muted/30"
+          }`}
+        >
           <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
             Rot Score (Waste Rate)
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="font-mono text-4xl font-black tracking-tight tabular-nums text-foreground">
+            <span
+              className={`font-mono text-4xl font-black tracking-tight tabular-nums ${
+                rot.tier === "high_rot" ? "text-red-500" : "text-foreground"
+              }`}
+            >
               {rot.rotScore}%
             </span>
-            <span className="text-xs font-semibold text-muted-foreground uppercase">
+            <span
+              className={`text-xs font-bold uppercase ${
+                rot.tier === "high_rot" ? "text-red-500" : "text-muted-foreground"
+              }`}
+            >
               {rot.tierLabel}
             </span>
           </div>
@@ -69,7 +91,7 @@ export function RotScoreCard({
             <div
               className={`h-full rounded-full transition-all duration-300 ${
                 rot.tier === "high_rot"
-                  ? "bg-foreground"
+                  ? "bg-red-500"
                   : rot.tier === "moderate_rot"
                   ? "bg-foreground/75"
                   : "bg-muted-foreground/50"
@@ -79,17 +101,31 @@ export function RotScoreCard({
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5 rounded-xl border border-foreground/30 bg-muted/30 p-4">
+        <div
+          className={`flex flex-col gap-1.5 rounded-xl border p-4 ${
+            rot.tier === "high_rot"
+              ? "border-red-500/40 bg-red-500/10"
+              : "border-foreground/30 bg-muted/30"
+          }`}
+        >
           <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
             Money Wasted
           </span>
           <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-4xl font-black tracking-tight tabular-nums text-foreground">
+            <span
+              className={`font-mono text-4xl font-black tracking-tight tabular-nums ${
+                rot.tier === "high_rot" ? "text-red-500" : "text-foreground"
+              }`}
+            >
               {formatMoney(rot.wastedMonthlyCents, currency)}
             </span>
             <span className="text-xs font-medium text-muted-foreground">/mo</span>
           </div>
-          <span className="font-mono text-xs font-semibold text-muted-foreground">
+          <span
+            className={`font-mono text-xs font-semibold ${
+              rot.tier === "high_rot" ? "text-red-500" : "text-muted-foreground"
+            }`}
+          >
             {formatMoney(rot.wastedMonthlyCents * 12, currency)} /yr leak
           </span>
         </div>

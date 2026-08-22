@@ -77,17 +77,38 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
 
       {/* ── Rot Intelligence Banner ─────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="flex flex-col gap-1 rounded-xl border border-foreground/30 bg-muted/40 p-4">
+        <div
+          className={cn(
+            "flex flex-col gap-1 rounded-xl border p-4",
+            portfolioTier.tier === "high_rot"
+              ? "border-red-500/40 bg-red-500/10"
+              : "border-foreground/30 bg-muted/40",
+          )}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Portfolio Rot Score
             </span>
-            <Badge variant={rotBadgeVariant(portfolioTier.tier)} className="px-2 py-0.5 font-bold uppercase">
+            <span
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider",
+                portfolioTier.tier === "high_rot"
+                  ? "bg-red-500/20 text-red-500 border border-red-500/40"
+                  : "bg-foreground text-background",
+              )}
+            >
               {portfolioTier.label}
-            </Badge>
+            </span>
           </div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-mono text-3xl font-black tracking-tight tabular-nums text-foreground">
+            <span
+              className={cn(
+                "font-mono text-3xl font-black tracking-tight tabular-nums",
+                portfolioTier.tier === "high_rot"
+                  ? "text-red-500"
+                  : "text-foreground",
+              )}
+            >
               {portfolioRot.averageRotScore}%
             </span>
             <span className="text-xs text-muted-foreground font-medium">overall waste rate</span>
@@ -106,16 +127,21 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
           </div>
         </div>
 
-        <div className="flex flex-col gap-1 rounded-xl border border-foreground/30 bg-muted/40 p-4">
-          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            High Rot Subscriptions
-          </span>
+        <div className="flex flex-col gap-1 rounded-xl border border-red-500/40 bg-red-500/10 p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-red-500">
+              High Rot (≥60%)
+            </span>
+            <span className="rounded bg-red-500/20 border border-red-500/30 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-red-500">
+              Action Needed
+            </span>
+          </div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-mono text-3xl font-black tracking-tight tabular-nums text-foreground">
+            <span className="font-mono text-3xl font-black tracking-tight tabular-nums text-red-500">
               {portfolioRot.highRotCount}
             </span>
             <span className="text-xs text-muted-foreground font-medium">
-              of {summary.activeCount} active needing review
+              of {summary.activeCount} active subscriptions
             </span>
           </div>
         </div>
@@ -211,17 +237,21 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
                             <div className="flex items-center gap-2">
                               <span
                                 className={cn(
-                                  "font-mono text-lg font-black tracking-tight tabular-nums",
-                                  isHigh ? "text-foreground" : isMod ? "text-foreground/90" : "text-muted-foreground",
+                                  "font-mono text-xl font-black tracking-tight tabular-nums",
+                                  isHigh
+                                    ? "text-red-500"
+                                    : isMod
+                                    ? "text-foreground"
+                                    : "text-muted-foreground",
                                 )}
                               >
                                 {rot.rotScore}%
                               </span>
                               <span
                                 className={cn(
-                                  "inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase",
+                                  "inline-flex items-center rounded px-2 py-0.5 text-[10px] font-extrabold tracking-wider uppercase",
                                   isHigh
-                                    ? "bg-foreground text-background font-black shadow-xs"
+                                    ? "bg-red-500/20 text-red-500 border border-red-500/40 shadow-xs"
                                     : isMod
                                     ? "border border-foreground/40 bg-muted text-foreground font-bold"
                                     : "border border-border text-muted-foreground font-semibold",
@@ -237,7 +267,7 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
                                 className={cn(
                                   "h-full rounded-full transition-all duration-300",
                                   isHigh
-                                    ? "bg-foreground"
+                                    ? "bg-red-500"
                                     : isMod
                                     ? "bg-foreground/70"
                                     : "bg-muted-foreground/40",
@@ -247,10 +277,17 @@ export default async function SubscriptionsPage({ searchParams }: SubscriptionsP
                             </div>
 
                             <div className="flex items-center gap-1 font-mono text-[11px] tabular-nums">
-                              <span className="font-bold text-foreground">
+                              <span
+                                className={cn(
+                                  "font-bold",
+                                  isHigh ? "text-red-500" : "text-foreground",
+                                )}
+                              >
                                 -{formatMoney(rot.wastedMonthlyCents, subscription.currency)}
                               </span>
-                              <span className="text-muted-foreground">/mo wasted</span>
+                              <span className={cn(isHigh ? "text-red-500/70" : "text-muted-foreground")}>
+                                /mo wasted
+                              </span>
                             </div>
                           </div>
                         );

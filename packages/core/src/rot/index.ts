@@ -73,7 +73,7 @@ export interface RotPortfolioSummary {
 
 /** Determines tier and human-readable label from integer rot score. */
 export function getRotTier(rotScore: number): { tier: RotTier; label: string } {
-  if (rotScore >= 70) {
+  if (rotScore >= 60) {
     return { tier: "high_rot", label: "High Rot" };
   }
   if (rotScore >= 30) {

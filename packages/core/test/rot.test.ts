@@ -65,7 +65,7 @@ describe("Rot Score Calculation", () => {
     });
 
     expect(lowUse.rotScore).toBe(68);
-    expect(lowUse.tier).toBe("moderate_rot");
+    expect(lowUse.tier).toBe("high_rot");
     expect(lowUse.wastedMonthlyCents).toBe(3419);
     expect(lowUse.capturedValueMonthlyCents).toBe(1581);
 
@@ -111,8 +111,8 @@ describe("Rot Score Calculation", () => {
 
   it("classifies rot tiers correctly according to thresholds", () => {
     expect(getRotTier(100).tier).toBe("high_rot");
-    expect(getRotTier(70).tier).toBe("high_rot");
-    expect(getRotTier(69).tier).toBe("moderate_rot");
+    expect(getRotTier(60).tier).toBe("high_rot");
+    expect(getRotTier(59).tier).toBe("moderate_rot");
     expect(getRotTier(30).tier).toBe("moderate_rot");
     expect(getRotTier(29).tier).toBe("healthy");
     expect(getRotTier(0).tier).toBe("healthy");
