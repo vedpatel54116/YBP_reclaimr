@@ -41,11 +41,12 @@ const FILTER_LABEL: Record<StatusFilter, string> = {
 };
 
 interface SubscriptionsPageProps {
-  searchParams: Promise<{ status?: string }>;
+  searchParams?: Promise<{ status?: string }>;
 }
 
 export default async function SubscriptionsPage({ searchParams }: SubscriptionsPageProps) {
-  const { status } = await searchParams;
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const status = resolvedParams?.status;
   const filter: StatusFilter = isStatusFilter(status) ? status : "all";
   const { subscriptions, source } = await loadSubscriptions();
 

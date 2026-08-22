@@ -13,11 +13,12 @@ const FILTERS = ["all", "unread"] as const;
 type AlertFilter = (typeof FILTERS)[number];
 
 interface AlertsPageProps {
-  searchParams: Promise<{ filter?: string }>;
+  searchParams?: Promise<{ filter?: string }>;
 }
 
 export default async function AlertsPage({ searchParams }: AlertsPageProps) {
-  const { filter } = await searchParams;
+  const resolved = searchParams ? await searchParams : undefined;
+  const filter = resolved?.filter;
   const activeFilter: AlertFilter = filter === "unread" ? "unread" : "all";
   const alerts = getAlerts();
   const unread = alerts.filter((alert) => alert.readAt === null);

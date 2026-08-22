@@ -22,8 +22,8 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export async function generateMetadata({ params }: BillDetailPageProps): Promise<Metadata> {
-  const { id } = await params;
-  const bill = getBill(id);
+  const resolved = params ? await params : { id: "" };
+  const bill = getBill(resolved.id);
   return { title: bill ? bill.name : "Bill" };
 }
 
@@ -45,7 +45,8 @@ const NEGOTIATION_STEPS = [
 ] as const;
 
 export default async function BillDetailPage({ params }: BillDetailPageProps) {
-  const { id } = await params;
+  const resolved = params ? await params : { id: "" };
+  const id = resolved.id;
   const bill = getBill(id);
   if (!bill) notFound();
 

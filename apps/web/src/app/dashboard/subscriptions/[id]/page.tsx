@@ -32,17 +32,18 @@ import {
 import { formatCadence, formatDate, formatMoney } from "@/lib/format";
 
 interface SubscriptionDetailPageProps {
-  params: Promise<{ id: string }>;
+  params?: Promise<{ id: string }>;
 }
 
 export async function generateMetadata({ params }: SubscriptionDetailPageProps): Promise<Metadata> {
-  const { id } = await params;
-  const result = await loadSubscription(id);
+  const resolved = params ? await params : { id: "" };
+  const result = await loadSubscription(resolved.id);
   return { title: result ? result.subscription.name : "Subscription" };
 }
 
 export default async function SubscriptionDetailPage({ params }: SubscriptionDetailPageProps) {
-  const { id } = await params;
+  const resolved = params ? await params : { id: "" };
+  const id = resolved.id;
   const [result, usage] = await Promise.all([
     loadSubscription(id),
     loadSubscriptionUsage(id),
