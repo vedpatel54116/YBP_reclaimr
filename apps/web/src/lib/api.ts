@@ -7,7 +7,18 @@ import {
   type UpdateSubscriptionInput,
 } from "@reclaimr/shared";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+function getApiBaseUrl(): string | null {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (envUrl) return envUrl.replace(/\/+$/, "");
+
+  // In production deployments (e.g. Vercel) without a live backend configured,
+  // do not try to reach localhost:3001 during server-side rendering.
+  if (process.env.NODE_ENV === "production") {
+    return null;
+  }
+
+  return "http://localhost:3001";
+}
 
 /**
  * Thin fetch wrapper for the JSON API. Returns null on any network or HTTP
@@ -15,12 +26,22 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
  * demo data.
  */
 async function apiFetch(path: string, init?: RequestInit): Promise<unknown | null> {
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) return null;
+
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+
+    const response = await fetch(`${baseUrl}${path}`, {
       cache: "no-store",
+      signal: controller.signal,
       ...init,
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
+
+    clearTimeout(timer);
+
     if (!response.ok) return null;
     if (response.status === 204) return null;
     return await response.json();
