@@ -28,7 +28,6 @@ import {
   getRotTier,
   isStatusFilter,
   previousChargeDate,
-  rotBadgeVariant,
   statusBadgeVariant,
   summarizeSubscriptions,
   STATUS_FILTERS,

@@ -2,9 +2,8 @@
 
 import { useId, useState } from "react";
 import { computeRotScore, type RotScoreResult } from "@reclaimr/core";
-import { Badge, Button, Card, CardSection } from "@reclaimr/ui";
+import { Button, Card, CardSection } from "@reclaimr/ui";
 import { formatMoney } from "@/lib/format";
-import { rotBadgeVariant } from "@/lib/domain";
 
 interface RotScoreCardProps {
   monthlyPriceCents: number;
