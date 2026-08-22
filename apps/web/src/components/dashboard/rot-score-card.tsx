@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { computeRotScore, type RotScoreResult } from "@reclaimr/core";
-import { Badge, Button, Card, CardSection, ProgressBar } from "@reclaimr/ui";
+import { Badge, Button, Card, CardSection } from "@reclaimr/ui";
 import { formatMoney } from "@/lib/format";
 import { rotBadgeVariant } from "@/lib/domain";
 
@@ -53,50 +53,63 @@ export function RotScoreCard({
 
       {/* ── Main metric row ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="flex flex-col gap-1 rounded-md border p-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Rot Score
+        <div className="flex flex-col gap-1.5 rounded-xl border border-foreground/30 bg-muted/30 p-4">
+          <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Rot Score (Waste Rate)
           </span>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-3xl font-bold tracking-tight tabular-nums">
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-4xl font-black tracking-tight tabular-nums text-foreground">
               {rot.rotScore}%
             </span>
-            <span className="text-xs text-muted-foreground">waste</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase">
+              {rot.tierLabel}
+            </span>
           </div>
-          <ProgressBar value={rot.rotScore} className="mt-1" />
+          <div className="relative mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                rot.tier === "high_rot"
+                  ? "bg-foreground"
+                  : rot.tier === "moderate_rot"
+                  ? "bg-foreground/75"
+                  : "bg-muted-foreground/50"
+              }`}
+              style={{ width: `${rot.rotScore}%` }}
+            />
+          </div>
         </div>
 
-        <div className="flex flex-col gap-1 rounded-md border p-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="flex flex-col gap-1.5 rounded-xl border border-foreground/30 bg-muted/30 p-4">
+          <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
             Money Wasted
           </span>
           <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-3xl font-bold tracking-tight tabular-nums">
+            <span className="font-mono text-4xl font-black tracking-tight tabular-nums text-foreground">
               {formatMoney(rot.wastedMonthlyCents, currency)}
             </span>
-            <span className="text-xs text-muted-foreground">/mo</span>
+            <span className="text-xs font-medium text-muted-foreground">/mo</span>
           </div>
-          <span className="text-xs text-muted-foreground">
+          <span className="font-mono text-xs font-semibold text-muted-foreground">
             {formatMoney(rot.wastedMonthlyCents * 12, currency)} /yr leak
           </span>
         </div>
 
-        <div className="flex flex-col gap-1 rounded-md border p-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="flex flex-col gap-1.5 rounded-xl border border-foreground/30 bg-muted/30 p-4">
+          <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
             Effective Cost / Hr
           </span>
           <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-3xl font-bold tracking-tight tabular-nums">
+            <span className="font-mono text-4xl font-black tracking-tight tabular-nums text-foreground">
               {rot.costPerHourUsedCents !== null
                 ? `${formatMoney(rot.costPerHourUsedCents, currency)}`
                 : "—"}
             </span>
             {rot.costPerHourUsedCents !== null ? (
-              <span className="text-xs text-muted-foreground">/active hr</span>
+              <span className="text-xs font-medium text-muted-foreground">/hr</span>
             ) : null}
           </div>
-          <span className="text-xs text-muted-foreground">
-            {hoursUsed > 0 ? `${hoursUsed.toFixed(1)} hrs logged` : "0 hrs logged"}
+          <span className="text-xs font-medium text-muted-foreground">
+            {hoursUsed > 0 ? `${hoursUsed.toFixed(1)} hrs logged this month` : "0 hrs logged"}
           </span>
         </div>
       </div>
