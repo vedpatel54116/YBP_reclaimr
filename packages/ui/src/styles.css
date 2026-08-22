@@ -1,0 +1,178 @@
+/*
+ * ReclaimR UI — strict black & white design system (Tailwind CSS v4).
+ *
+ * This file is imported by the application's global stylesheet right after
+ * `@import "tailwindcss"`. It defines:
+ *   1. Grayscale design tokens for both themes (`:root` = light, `.dark`).
+ *   2. A `dark` variant driven by a class on <html> (set by the pre-hydration
+ *      script + ThemeProvider in @reclaimr/ui, not by media queries) so the
+ *      in-app toggle can override the OS preference.
+ *   3. `@theme inline` mappings that expose tokens as Tailwind utilities
+ *      (bg-background, text-muted-foreground, font-heading, ...). `inline`
+ *      keeps utilities pointing at the CSS variables above, so toggling the
+ *      `.dark` class flips every utility at runtime with no rebuild.
+ *
+ * Grayscale only: state is communicated with contrast, borders, weight, and
+ * labels — never color.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --subtle-foreground: #a3a3a3;
+  --border: #e5e5e5;
+  --ring: #0a0a0a;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #0a0a0a;
+  --card-foreground: #fafafa;
+  --muted: #1a1a1a;
+  --muted-foreground: #a3a3a3;
+  --subtle-foreground: #737373;
+  --border: #2b2b2b;
+  --ring: #fafafa;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  /* Primary is foreground by definition in a monochrome system. */
+  --color-primary: var(--foreground);
+  --color-primary-foreground: var(--background);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  /*
+   * Font stacks. The `--font-inter` / `--font-space-grotesk` /
+   * `--font-jetbrains-mono` variables are injected by the app via next/font;
+   * the fallbacks keep the package usable without them.
+   */
+  --font-sans: var(--font-inter, ui-sans-serif), system-ui, sans-serif;
+  --font-heading:
+    var(--font-space-grotesk, var(--font-inter, ui-sans-serif)), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono, ui-monospace), "SF Mono", Menlo, Consolas, monospace;
+}
+
+@theme {
+  --animate-fade-in: rr-fade-in 150ms ease-out;
+  --animate-scale-in: rr-scale-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-up: rr-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes rr-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes rr-scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes rr-slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer base {
+  /* Tailwind's default border color is currentColor; neutral borders are the
+     norm in this system, so make them the default for every element. */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* One global high-contrast focus treatment; interactive components rely on
+     it instead of restyling focus individually. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--foreground);
+    color: var(--background);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/*
+ * Liquid glass surface. Requires the `LiquidGlassFilter` component to be
+ * mounted once per page (it defines the #rr-glass SVG displacement filter).
+ * Engines without `backdrop-filter: url(#…)` support (e.g. Firefox) fall back
+ * to a plain blur via the @supports rule below.
+ */
+.liquid-glass {
+  --glass-frost: 0.1;
+  --glass-saturation: 1.2;
+  background: color-mix(in srgb, var(--background) calc(var(--glass-frost) * 100%), transparent);
+  -webkit-backdrop-filter: url(#rr-glass) saturate(var(--glass-saturation));
+  backdrop-filter: url(#rr-glass) saturate(var(--glass-saturation));
+  box-shadow:
+    inset 0 0 2px 1px rgb(255 255 255 / 0.35),
+    inset 0 0 10px 4px rgb(255 255 255 / 0.15),
+    inset 0 4px 16px rgb(17 17 26 / 0.05),
+    inset 0 8px 24px rgb(17 17 26 / 0.05),
+    inset 0 6px 56px rgb(17 17 26 / 0.05);
+}
+
+@supports not (backdrop-filter: url(#rr-glass)) {
+  .liquid-glass {
+    -webkit-backdrop-filter: blur(20px) saturate(var(--glass-saturation, 1.2));
+    backdrop-filter: blur(20px) saturate(var(--glass-saturation, 1.2));
+  }
+}
