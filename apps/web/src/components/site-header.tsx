@@ -44,10 +44,7 @@ export function SiteHeader() {
         <Link href="/login" className={`${buttonClasses("ghost", "sm")} hidden sm:inline-flex`}>
           Log in
         </Link>
-        <Link
-          href="/signup"
-          className={`${buttonClasses("primary", "sm")} hidden sm:inline-flex`}
-        >
+        <Link href="/signup" className={`${buttonClasses("primary", "sm")} hidden sm:inline-flex`}>
           Get started
         </Link>
       </div>
