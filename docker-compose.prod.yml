@@ -1,0 +1,157 @@
+# ReclaimR — full-stack deployment.
+#
+# This file runs the whole product (web, api, worker, postgres, redis) in one
+# place. It suits a single-host deployment or a realistic staging environment;
+# for production, prefer managed Postgres and Redis and point DATABASE_URL /
+# REDIS_URL at them (see docs/DEPLOYMENT.md).
+#
+#   cp .env.example .env      # then fill in real secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Every secret is read from the environment. There are no defaults for the
+# secrets on purpose: `${VAR:?message}` makes compose refuse to start rather
+# than silently booting with a placeholder key.
+
+name: reclaimr
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reclaimr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-reclaimr}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Not published: only the app containers need to reach the database.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reclaimr} -d ${POSTGRES_DB:-reclaimr}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Persistence matters here: Redis holds the BullMQ job state, so losing it
+    # loses queued syncs.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # One-shot release step. Migrations run in their own container so they happen
+  # exactly once per deploy, rather than racing between API replicas.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: "no"
+    command: ["node_modules/.bin/prisma", "migrate", "deploy"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: &database_url >-
+        postgresql://${POSTGRES_USER:-reclaimr}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-reclaimr}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      DATABASE_URL: *database_url
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN to the web origin}
+
+      # Auth. Generate each with: openssl rand -base64 32
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
+      JWT_ADMIN_SECRET: ${JWT_ADMIN_SECRET:?set JWT_ADMIN_SECRET}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
+      BANK_TOKEN_ENCRYPTION_KEY: ${BANK_TOKEN_ENCRYPTION_KEY:?set BANK_TOKEN_ENCRYPTION_KEY}
+
+      # Aggregation
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+
+      # Billing. Without STRIPE_SECRET_KEY the API refuses to boot in
+      # production rather than granting premium for free.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?set STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?set STRIPE_WEBHOOK_SECRET}
+      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:?set STRIPE_SUCCESS_URL}
+      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:?set STRIPE_CANCEL_URL}
+
+      STATEMENT_STORAGE_DIR: /data/statements
+    volumes:
+      # Statement uploads must outlive the container. A single API replica can
+      # use this volume; scaling out requires an object-storage adapter.
+      - statement-data:/data/statements
+    ports:
+      - "${API_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: *database_url
+      REDIS_URL: redis://redis:6379
+      WORKER_QUEUES: ${WORKER_QUEUES:-all}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      BANK_TOKEN_ENCRYPTION_KEY: ${BANK_TOKEN_ENCRYPTION_KEY}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the client bundle at build time, so changing this requires
+        # a rebuild rather than a restart.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:
+  statement-data:

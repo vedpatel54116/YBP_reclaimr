@@ -1,0 +1,84 @@
+import {
+  API_ROUTES,
+  type CreateSubscriptionInput,
+  type Paginated,
+  type Subscription,
+  type SubscriptionSuggestionsResponse,
+  type UpdateSubscriptionInput,
+} from "@reclaimr/shared";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+/**
+ * Thin fetch wrapper for the JSON API. Returns null on any network or HTTP
+ * failure — callers decide whether that is an error state or a fallback to
+ * demo data.
+ */
+async function apiFetch(path: string, init?: RequestInit): Promise<unknown | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      cache: "no-store",
+      ...init,
+      headers: { "Content-Type": "application/json", ...init?.headers },
+    });
+    if (!response.ok) return null;
+    if (response.status === 204) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Fetches a page of subscriptions; null when the API is unreachable. */
+export async function fetchSubscriptions(pageSize = 100): Promise<Paginated<Subscription> | null> {
+  const json = await apiFetch(`${API_ROUTES.subscriptions.list}?pageSize=${pageSize}`);
+  if (!json || typeof json !== "object" || !("data" in json)) return null;
+  return json as Paginated<Subscription>;
+}
+
+/** Fetches one subscription; null when unreachable or not found. */
+export async function fetchSubscription(id: string): Promise<Subscription | null> {
+  const json = await apiFetch(API_ROUTES.subscriptions.detail(id));
+  if (!json || typeof json !== "object" || !("id" in json)) return null;
+  return json as Subscription;
+}
+
+/** Partially updates a subscription (status, amount, cadence, ...). */
+export async function updateSubscription(
+  id: string,
+  patch: UpdateSubscriptionInput,
+): Promise<Subscription | null> {
+  const json = await apiFetch(API_ROUTES.subscriptions.detail(id), {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  if (!json || typeof json !== "object" || !("id" in json)) return null;
+  return json as Subscription;
+}
+
+/** Creates a manually-tracked subscription. */
+export async function createSubscription(
+  input: CreateSubscriptionInput,
+): Promise<Subscription | null> {
+  const json = await apiFetch(API_ROUTES.subscriptions.create, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!json || typeof json !== "object" || !("id" in json)) return null;
+  return json as Subscription;
+}
+
+/**
+ * Fetches cached alternative advice for one subscription.
+ *
+ * Returns `undefined` when the API could not be reached (caller may fall back
+ * to fixtures) and `null` when the API answered but has nothing generated yet —
+ * a real empty state that must not be replaced with demo content.
+ */
+export async function fetchSubscriptionSuggestions(
+  id: string,
+): Promise<SubscriptionSuggestionsResponse["data"] | undefined> {
+  const json = await apiFetch(API_ROUTES.ai.suggestionsForSubscription(id));
+  if (!json || typeof json !== "object" || !("data" in json)) return undefined;
+  return (json as SubscriptionSuggestionsResponse).data;
+}

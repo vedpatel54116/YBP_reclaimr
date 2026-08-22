@@ -1,0 +1,15 @@
+/*
+ * App stylesheet. The design system (tokens, theme mapping, base styles,
+ * animations) lives in @reclaimr/ui and is imported first; app pages use
+ * Tailwind utilities on top of it.
+ */
+@import "tailwindcss";
+
+/* Design tokens + @theme mappings + base styles for both themes. */
+@import "../../../../packages/ui/src/styles.css";
+
+/*
+ * The UI package ships TypeScript source, so point Tailwind's scanner at it
+ * explicitly (node_modules is excluded from automatic detection).
+ */
+@source "../../../../packages/ui/src";

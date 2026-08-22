@@ -1,0 +1,687 @@
+// ReclaimR persistence schema — the full product domain.
+//
+// Conventions (mirrored by the wire contract in packages/shared):
+// - Money is integer cents (`*Cents` columns), never floats.
+// - IDs are UUIDs generated client-side by Prisma.
+// - Every member-owned row denormalizes `userId` so every query is scoped by
+//   one tenancy boundary; a member can never read another member's data.
+// - Absent data is NULL on the wire; `undefined` never crosses the API.
+// - Bank access is always read-only (enforced by the aggregator; there is no
+//   column because it is not a variable).
+// - Amount sign convention follows the aggregator (Plaid): positive = money
+//   leaving the account, negative = money coming in.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum AccountType {
+  checking
+  savings
+  credit_card
+  loan
+  mortgage
+  investment
+  other
+}
+
+enum AccountConnectionStatus {
+  connected
+  requires_reauth
+  error
+  revoked
+}
+
+enum TransactionCategory {
+  income
+  housing
+  utilities
+  telecommunications
+  groceries
+  dining
+  transportation
+  health
+  fitness
+  insurance
+  entertainment
+  subscriptions
+  shopping
+  travel
+  education
+  fees
+  transfers
+  savings
+  other
+}
+
+enum BillingCadence {
+  weekly
+  biweekly
+  monthly
+  quarterly
+  annual
+}
+
+enum SubscriptionStatus {
+  active
+  paused
+  cancel_requested
+  canceled
+}
+
+enum DetectionSource {
+  auto
+  manual
+}
+
+/// Shared lifecycle for concierge cases (cancellation + negotiation). Each
+/// case type uses the subset defined by its state machine in packages/core.
+/// `offer_pending` is negotiation-only — the state where a secured rate is
+/// waiting on the member's approval before any fee is booked.
+enum CaseStatus {
+  submitted
+  in_review
+  in_progress
+  offer_pending
+  succeeded
+  failed
+  canceled
+}
+
+enum SavingsKind {
+  subscription_canceled
+  bill_negotiated
+  fee_refunded
+  manual_adjustment
+}
+
+enum AlertType {
+  low_balance
+  large_purchase
+  upcoming_bill
+  price_increase
+  new_subscription_detected
+  subscription_canceled
+  bank_connection_error
+}
+
+enum AlertSeverity {
+  info
+  warning
+}
+
+enum NotificationChannel {
+  in_app
+  email
+  push
+}
+
+enum PremiumStatus {
+  trialing
+  active
+  past_due
+  canceled
+  expired
+}
+
+/// Premium billing cadence. Members choose a monthly price either way; the
+/// yearly plan charges that price × 10 up front (two months free).
+enum PremiumInterval {
+  monthly
+  yearly
+}
+
+enum ConsentType {
+  terms_of_service
+  privacy_policy
+  data_processing
+  marketing_email
+}
+
+enum AdminUserRole {
+  agent
+  finance_ops
+  admin
+}
+
+enum AuditActorType {
+  member
+  admin
+  system
+}
+
+/// Kind of cached AI-generated artifact (one row per subject per kind).
+enum AiSuggestionKind {
+  alternative_advice
+  alert_reasoning
+  digest
+  cancellation_plan
+  negotiation_script
+}
+
+// ─── Identity & consent ─────────────────────────────────────────────────────
+
+model User {
+  id                  String    @id @default(uuid()) @db.Uuid
+  email               String    @unique
+  name                String?
+  passwordHash        String
+  /// Soft-delete marker; scheduled deletions are enforced by a retention job.
+  deletionScheduledAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  refreshTokens     RefreshToken[]
+  consents          Consent[]
+  connectedAccounts ConnectedAccount[]
+  plaidItems        PlaidItem[]
+  transactions      Transaction[]
+  subscriptions     Subscription[]
+  bills             Bill[]
+  cancellationCases CancellationCase[]
+  negotiationCases  NegotiationCase[]
+  negotiationDocs   NegotiationDocument[]
+  savingsEvents     SavingsEvent[]
+  alerts            Alert[]
+  notifications     Notification[]
+  premium           PremiumSubscription?
+  auditLogs         AuditLog[]
+  aiSuggestions     AiSuggestion[]
+
+  @@index([deletionScheduledAt])
+  @@map("users")
+}
+
+/// Opaque rotating refresh tokens. Only the SHA-256 hash is persisted; the
+/// raw token exists solely in the HTTP response / client memory.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  /// Set on rotation and on logout; a revoked token can never be replayed.
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Regulatory consent ledger (GDPR/CCPA): terms, privacy, data processing,
+/// marketing. Append-only — superseding a consent adds a new row.
+model Consent {
+  id         String      @id @default(uuid()) @db.Uuid
+  userId     String      @db.Uuid
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       ConsentType
+  version    String
+  ip         String?
+  userAgent  String?
+  acceptedAt DateTime    @default(now())
+
+  @@index([userId, type])
+  @@map("consents")
+}
+
+/// Staff accounts live in a separate realm from members (D6): different auth,
+/// different blast radius. MFA secret is stored encrypted at rest.
+model AdminUser {
+  id           String        @id @default(uuid()) @db.Uuid
+  email        String        @unique
+  name         String
+  passwordHash String
+  role         AdminUserRole @default(agent)
+  isActive     Boolean       @default(true)
+  mfaSecret    String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("admin_users")
+}
+
+// ─── Aggregation ────────────────────────────────────────────────────────────
+
+/// One Plaid "item": a member's credential grant at a single institution.
+/// The access token is stored encrypted (AES-256-GCM) and never returned on
+/// any API surface. One item fans out to several ConnectedAccounts.
+model PlaidItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  userId         String  @db.Uuid
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Plaid item_id; unique per credential grant.
+  externalItemId String  @unique
+  /// AES-256-GCM envelope; decryptable only with the server key.
+  accessTokenEnc String
+  institutionId  String?
+  institutionName String
+  /// /transactions/sync cursor — makes every incremental sync idempotent.
+  syncCursor     String?
+  status         AccountConnectionStatus @default(connected)
+  lastSyncedAt   DateTime?
+  lastSyncError  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  accounts ConnectedAccount[]
+
+  @@index([userId])
+  @@map("plaid_items")
+}
+
+/// A linked bank account (one aggregator "item" may yield several accounts).
+model ConnectedAccount {
+  id              String                  @id @default(uuid()) @db.Uuid
+  userId          String                  @db.Uuid
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Owning aggregator item; null for manually tracked accounts.
+  plaidItemId     String?                 @db.Uuid
+  plaidItem       PlaidItem?              @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+  /// Aggregator institution identifiers (e.g. Plaid institution_id).
+  institutionId   String?
+  institutionName String
+  /// Display name, e.g. "Premier Checking".
+  name            String
+  type            AccountType
+  /// Last four digits of the account number, display only.
+  mask            String                  @db.Char(4)
+  /// Aggregator account id; pairs with the item to identify this row.
+  externalAccountId String?
+  /// Signed current balance in cents (negative = amount owed on credit).
+  balanceCents    Int?
+  currency        String                  @default("USD") @db.Char(3)
+  status          AccountConnectionStatus @default(connected)
+  lastSyncedAt    DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  transactions Transaction[]
+  bills        Bill[]
+
+  @@unique([plaidItemId, externalAccountId])
+  @@index([userId])
+  @@index([plaidItemId])
+  @@map("connected_accounts")
+}
+
+/// Canonical merchant entity, maintained by finance ops. Detection groups
+/// transactions by matching against normalizedKey and aliases.
+model Merchant {
+  id                     String              @id @default(uuid()) @db.Uuid
+  canonicalName          String
+  /// Normalized merchant key used for matching (strip store #, prefixes...).
+  normalizedKey          String              @unique
+  category               TransactionCategory @default(other)
+  /// Known recurring-service provider (Netflix, Spotify, ...).
+  isSubscriptionProvider Boolean             @default(false)
+  /// Bill negotiation is offered for this merchant's bills.
+  negotiable             Boolean             @default(false)
+  /// Alternate raw-description spellings that map to this merchant.
+  aliases                String[]            @default([])
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  transactions  Transaction[]
+  subscriptions Subscription[]
+  bills         Bill[]
+
+  @@map("merchants")
+}
+
+model Transaction {
+  id           String              @id @default(uuid()) @db.Uuid
+  userId       String              @db.Uuid
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId    String              @db.Uuid
+  account      ConnectedAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  merchantId   String?             @db.Uuid
+  merchant     Merchant?           @relation(fields: [merchantId], references: [id])
+  /// Raw statement description at capture time (display + audit).
+  merchantName String
+  /// Positive = money leaving the account; negative = money in.
+  amountCents  Int
+  category     TransactionCategory @default(other)
+  isRecurring  Boolean             @default(false)
+  isPending    Boolean             @default(false)
+  note         String?
+  occurredAt   DateTime
+  /// Aggregator transaction id; unique — makes every sync idempotent.
+  externalId   String              @unique
+  createdAt    DateTime            @default(now())
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([accountId, occurredAt(sort: Desc)])
+  @@index([merchantId])
+  @@map("transactions")
+}
+
+// ─── Detected recurring money ───────────────────────────────────────────────
+
+model Subscription {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String             @db.Uuid
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId      String?            @db.Uuid
+  merchant        Merchant?          @relation(fields: [merchantId], references: [id])
+  name            String
+  amountCents     Int
+  currency        String             @default("USD") @db.Char(3)
+  cadence         BillingCadence
+  status          SubscriptionStatus @default(active)
+  /// Date-only; the time component is always UTC midnight.
+  nextBillingDate DateTime           @db.Date
+  source          DetectionSource    @default(manual)
+  /// Detection confidence in [0, 1]; auto rows surface at ≥ 0.97 only.
+  confidence      Float?
+  firstDetectedAt DateTime?
+  lastChargedAt   DateTime?          @db.Date
+  /// Set when detection flags a same-merchant price level shift.
+  priceChangedAt  DateTime?
+  canceledAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  cancellationCases CancellationCase[]
+
+  @@index([userId, status])
+  @@index([merchantId])
+  @@map("subscriptions")
+}
+
+/// A recurring bill owed to a payee (utilities, internet, insurance...).
+model Bill {
+  id                  String              @id @default(uuid()) @db.Uuid
+  userId              String              @db.Uuid
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId          String?             @db.Uuid
+  merchant            Merchant?           @relation(fields: [merchantId], references: [id])
+  connectedAccountId  String?             @db.Uuid
+  connectedAccount    ConnectedAccount?   @relation(fields: [connectedAccountId], references: [id])
+  name                String
+  category            TransactionCategory @default(utilities)
+  expectedAmountCents Int?
+  lastAmountCents     Int?
+  /// Day of month the bill is due (1–31; clipped for shorter months).
+  dueDay              Int
+  cadence             BillingCadence      @default(monthly)
+  autopay             Boolean             @default(false)
+  /// Whether concierge negotiation is offered for this bill.
+  negotiable          Boolean             @default(false)
+  isActive            Boolean             @default(true)
+  /// Detection confidence in [0, 1]; null for manually added rows.
+  confidence          Float?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  negotiationCases NegotiationCase[]
+
+  @@index([userId, isActive])
+  @@map("bills")
+}
+
+// ─── Concierge cases ────────────────────────────────────────────────────────
+
+/// "Cancel this subscription for me." One row per request; the service layer
+/// enforces a single open case per subscription.
+model CancellationCase {
+  id                 String       @id @default(uuid()) @db.Uuid
+  userId             String       @db.Uuid
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId     String       @db.Uuid
+  subscription       Subscription @relation(fields: [subscriptionId], references: [id])
+  status             CaseStatus   @default(submitted)
+  /// Snapshot of the subscription's monthly-equivalent cost at request time.
+  monthlyAmountCents Int
+  reason             String?
+  /// Append-only status timeline: [{ at, status, actor, note }].
+  timeline           Json         @default("[]")
+  resolvedAt         DateTime?
+  outcomeNote        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([userId, status])
+  @@index([subscriptionId])
+  @@map("cancellation_cases")
+}
+
+/// "Negotiate this bill down for me." The success fee is
+/// feePercent × confirmedAnnualSavingsCents and is booked only when the member
+/// approves the rate the concierge secured (D9) — never on a projection, and
+/// never without an explicit approval.
+model NegotiationCase {
+  id                          String     @id @default(uuid()) @db.Uuid
+  userId                      String     @db.Uuid
+  user                        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billId                      String     @db.Uuid
+  bill                        Bill       @relation(fields: [billId], references: [id])
+  status                      CaseStatus @default(submitted)
+  /// User-chosen success fee share, 35–60 (%).
+  feePercent                  Int
+  projectedAnnualSavingsCents Int?
+  /// The savings the concierge secured, awaiting member approval.
+  offeredAnnualSavingsCents   Int?
+  /// Concierge's description of the offer (new rate, term, conditions).
+  offerNote                   String?
+  offeredAt                   DateTime?
+  /// When the member approved or rejected the offer.
+  offerRespondedAt            DateTime?
+  /// Copied from the offer on approval; the basis for the fee.
+  confirmedAnnualSavingsCents Int?
+  feeAmountCents              Int?
+  timeline                    Json       @default("[]")
+  resolvedAt                  DateTime?
+  outcomeNote                 String?
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
+
+  documents NegotiationDocument[]
+
+  @@index([userId, status])
+  @@index([billId])
+  @@map("negotiation_cases")
+}
+
+/// A statement the member uploaded so the concierge can quote the provider.
+/// Only metadata lives here; bytes live in object storage under `storageKey`,
+/// which is always userId-prefixed so a key cannot address another member's
+/// file even if it leaks.
+model NegotiationDocument {
+  id                String          @id @default(uuid()) @db.Uuid
+  userId            String          @db.Uuid
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  negotiationCaseId String          @db.Uuid
+  negotiationCase   NegotiationCase @relation(fields: [negotiationCaseId], references: [id], onDelete: Cascade)
+  filename          String
+  contentType       String
+  sizeBytes         Int
+  /// Opaque storage key, e.g. "negotiations/<userId>/<caseId>/<uuid>.pdf".
+  storageKey        String          @unique
+  /// SHA-256 of the bytes; detects corruption and duplicate uploads.
+  checksum          String
+  uploadedAt        DateTime        @default(now())
+
+  @@index([negotiationCaseId])
+  @@index([userId])
+  @@map("negotiation_documents")
+}
+
+// ─── Savings, alerts, notifications ─────────────────────────────────────────
+
+/// Append-only ledger feeding the "reclaimed" counter. Money amounts are
+/// always positive (the amount reclaimed for the member).
+model SavingsEvent {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @db.Uuid
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        SavingsKind
+  amountCents Int
+  description String
+  occurredAt  DateTime    @db.Date
+  /// Originating record ('cancellation' | 'negotiation' | 'refund' | 'manual').
+  sourceType  String?
+  sourceId    String?     @db.Uuid
+  createdAt   DateTime    @default(now())
+
+  /// Exactly-once savings per originating case. Postgres treats NULLs as
+  /// distinct, so manual adjustments (sourceId NULL) are unconstrained while a
+  /// case can never be credited twice — the ledger cannot be inflated by a
+  /// retry or a double-approval.
+  @@unique([sourceType, sourceId])
+  @@index([userId, occurredAt(sort: Desc)])
+  @@map("savings_events")
+}
+
+model Alert {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @db.Uuid
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      AlertType
+  severity  AlertSeverity @default(info)
+  title     String
+  body      String
+  /// Type-specific payload, e.g. { thresholdCents, actualCents }.
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  notifications Notification[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("alerts")
+}
+
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @db.Uuid
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   NotificationChannel @default(in_app)
+  title     String
+  body      String
+  alertId   String?             @db.Uuid
+  alert     Alert?              @relation(fields: [alertId], references: [id])
+  readAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ─── Monetization & audit ───────────────────────────────────────────────────
+
+/// Current premium state; one row per member (created on first upgrade).
+/// A free member has no row — the API derives status "none".
+model PremiumSubscription {
+  id                     String          @id @default(uuid()) @db.Uuid
+  userId                 String          @unique @db.Uuid
+  user                   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                 PremiumStatus   @default(trialing)
+  /// Choose-your-price monthly amount, $7–$14 (700–1400 cents). On the yearly
+  /// plan this is still the monthly figure; the charge is this × 10.
+  priceCentsMonthly      Int
+  interval               PremiumInterval @default(monthly)
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  trialEndsAt            DateTime?
+  cancelAtPeriodEnd      Boolean         @default(false)
+  /// External billing provider ids (Stripe customer/subscription).
+  externalCustomerId     String?
+  externalSubscriptionId String?         @unique
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  @@index([externalCustomerId])
+  @@map("premium_subscriptions")
+}
+
+/// Processed billing-provider webhook ids. Stripe delivers at-least-once, so
+/// every handler is guarded by an insert here: a duplicate delivery hits the
+/// unique constraint and is acknowledged without re-applying its side effects.
+model StripeEvent {
+  /// Stripe's event id (evt_...), used directly as the primary key.
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([type, processedAt])
+  @@map("stripe_events")
+}
+
+/// Append-only audit trail for compliance and incident review. Never updated
+/// or deleted; retention is governed by the data policy.
+model AuditLog {
+  id         String         @id @default(uuid()) @db.Uuid
+  actorType  AuditActorType
+  /// AdminUser.id / User.id, or null for system jobs.
+  actorId    String?
+  /// The affected member, when the action concerns one.
+  userId     String?        @db.Uuid
+  user       User?          @relation(fields: [userId], references: [id])
+  /// Snake_case action, e.g. "auth.login", "cancellation.advanced".
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime       @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+// ─── AI features ────────────────────────────────────────────────────────────
+
+/// Curated catalog of cheaper/better alternatives per service category.
+/// Global and ops-maintained (like Merchant); seeded in v1, no admin CRUD.
+/// Prices are the source of truth for savings math — the LLM never supplies
+/// a number that reaches a member.
+model AlternativeOption {
+  id                String   @id @default(uuid()) @db.Uuid
+  /// Grouping category; matches Merchant.category values where possible.
+  category          String
+  name              String
+  monthlyPriceCents Int
+  highlights        String[] @default([])
+  tradeoffs         String[] @default([])
+  /// Normalized merchant keys this option can replace (e.g. "netflix").
+  replaces          String[] @default([])
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([category, isActive])
+  @@map("alternative_options")
+}
+
+/// Cached generated AI artifact. One row per (kind, subject); regenerated by
+/// upsert so the last good content survives a failed regeneration.
+model AiSuggestion {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @db.Uuid
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        AiSuggestionKind
+  /// Polymorphic subject: ("subscription", id) | ("alert", id) | ("bill", id) | ("user", userId).
+  subjectType String
+  subjectId   String           @db.Uuid
+  /// Feature-specific structured payload (picks list, digest bullets...).
+  content     Json
+  /// Raw LLM prose where the feature produces it (verdict, rationale).
+  summary     String?
+  model       String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([kind, subjectId])
+  @@index([userId, kind])
+  @@map("ai_suggestions")
+}

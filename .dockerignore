@@ -1,0 +1,23 @@
+# Keep the build context small and prevent host artifacts (and secrets) from
+# ever entering an image layer.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/coverage
+**/.data
+
+# Secrets. `.env.example` is intentionally NOT ignored — it is documentation.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+**/*.log
+.DS_Store
+
+# Docs and planning material are not build inputs.
+*.md
+docs
+legacy
